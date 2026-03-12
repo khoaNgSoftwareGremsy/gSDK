@@ -418,6 +418,7 @@ _read_port(uint8_t &cp)
 // ------------------------------------------------------------------------------
 //   Write Port with Lock
 // ------------------------------------------------------------------------------
+#if 0
 int
 Serial_Port::
 _write_port(char *buf, unsigned len)
@@ -438,6 +439,24 @@ _write_port(char *buf, unsigned len)
 
 	return bytesWritten;
 }
+#else 
+#include <poll.h>
+int Serial_Port::_write_port(char *buf, unsigned len)
+{
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLOUT;
+    int bytesWritten = -1;
+    // Poll cho đến khi file descriptor sẵn sàng để ghi
+    while (poll(&pfd, 1, 5) > 0) {
+        if (pfd.revents & POLLOUT) {
+            bytesWritten = static_cast<int>(write(fd, buf, len));
+            break;
+        }
+    }
+    return bytesWritten;
+}
+#endif
 int Serial_Port::write_buf(uint8_t *buf, uint16_t len)
 {
     int bytesWritten = _write_port((char *)buf, len);

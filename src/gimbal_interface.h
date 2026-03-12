@@ -304,7 +304,7 @@ public:
 
         GMB_PARAM_RC_TYPE,
 
-        GMB_PARAM_ENABLE_ADRC,
+        // GMB_PARAM_ENABLE_ADRC,
 
         GIMBAL_NUM_TRACKED_PARAMS
     };
@@ -758,7 +758,8 @@ public:
      */
     Gimbal_Protocol::result_t set_msg_rate(uint32_t msgid, rate_action_t rate);
 
-    private:
+    // private:
+    protected:
 
     /**
      * @brief Gimbal Interface state
@@ -1016,7 +1017,7 @@ public:
 
         {0, "RC_TYPE", 0, PARAM_STATE_NOT_YET_READ, 0, false},
 
-        {0, "ENABLE_ADRC", 0, PARAM_STATE_NOT_YET_READ, 0, false},
+        // {0, "ENABLE_ADRC", 0, PARAM_STATE_NOT_YET_READ, 0, false},
     };
 
     uint64_t _last_request_ms;

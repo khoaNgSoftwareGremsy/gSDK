@@ -951,7 +951,7 @@ Gimbal_Protocol::result_t Gimbal_Interface::set_gimbal_rotation_rate_sync(float 
         roll  >  ROLL_RATE_MAX || roll  < -ROLL_RATE_MAX ||
         yaw   >  YAW_RATE_MAX || yaw   < -YAW_RATE_MAX    )
     {
-        GSDK_DebugWarning("WARNING: You are moving the gimbal too fast!!!");
+        // GSDK_DebugWarning("WARNING: You are moving the gimbal too fast!!!");
       //  return Gimbal_Protocol::ERROR;
     }
     
