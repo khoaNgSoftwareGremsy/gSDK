@@ -482,6 +482,7 @@ int Serial_Port::_read_port(char *buf, uint16_t len)
 // ------------------------------------------------------------------------------
 //   Write Port with Lock
 // ------------------------------------------------------------------------------
+#if 0
 int Serial_Port::_write_port(const char *buf, unsigned len)
 {
     // Lock
@@ -494,6 +495,24 @@ int Serial_Port::_write_port(const char *buf, unsigned len)
     // pthread_mutex_unlock(&lock);
     return bytesWritten;
 }
+#else
+#include <poll.h>
+int Serial_Port::_write_port(const char *buf, unsigned len)
+{
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLOUT;
+    int bytesWritten = -1;
+    // Poll cho đến khi file descriptor sẵn sàng để ghi
+    while (poll(&pfd, 1, 5) > 0) {
+        if (pfd.revents & POLLOUT) {
+            bytesWritten = static_cast<int>(write(fd, buf, len));
+            break;
+        }
+    }
+    return bytesWritten;
+}
+#endif
 // ------------------------------------------------------------------------------
 //   Control Boot & Reset PIN
 // ------------------------------------------------------------------------------

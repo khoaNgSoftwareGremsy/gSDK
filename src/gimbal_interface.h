@@ -625,8 +625,8 @@ public:
      */
     uint32_t get_gimbal_attitude_flag(void);
 
-private:
-
+// private:
+protected:
     /**
      * @brief Gimbal Interface state
      *

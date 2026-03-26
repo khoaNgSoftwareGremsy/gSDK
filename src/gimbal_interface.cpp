@@ -147,6 +147,7 @@ void Gimbal_Interface::messages_handler(const mavlink_message_t &message)
         // Handle Message ID
         switch (message.msgid) {
             case MAVLINK_MSG_ID_HEARTBEAT: {
+                printf("MAVLINK_MSG_ID_HEARTBEAT \n");
                     pthread_mutex_lock(&_messages.mutex);
                     mavlink_msg_heartbeat_decode(&message, &_messages.heartbeat);
                     _messages.timestamps.heartbeat = get_time_usec();
@@ -630,20 +631,25 @@ Gimbal_Protocol::control_mode_t Gimbal_Interface::get_gimbal_mode(void)
 {
     // Get gimbal status
     pthread_mutex_lock(&_messages.mutex);
-    const uint16_t errors_count1 = _messages.sys_status.errors_count1;
+    const uint16_t attitude_flag = _messages.atttitude_status.flags;
     pthread_mutex_unlock(&_messages.mutex);
 
-    /* Check gimbal's motor */
-    if (errors_count1 & STATUS1_MOTORS) {
-        _status.state = GIMBAL_STATE_ON;
+    /* Check gimbal is follow mode*/
+    if (attitude_flag & GIMBAL_DEVICE_FLAGS_YAW_LOCK) {
+        _status.mode = (uint8_t)Gimbal_Protocol::GIMBAL_LOCK_MODE;
+    } 
+    else if (attitude_flag & GIMBAL_DEVICE_FLAGS_RETRACT){
+        _status.mode = (uint8_t)Gimbal_Protocol::GIMBAL_OFF;
+    }
 
-        /* Check gimbal is follow mode*/
-        if (errors_count1 & STATUS1_MODE_FOLLOW_LOCK) {
-            _status.mode = Gimbal_Protocol::GIMBAL_FOLLOW_MODE;
-
-        } else {
-            _status.mode = Gimbal_Protocol::GIMBAL_LOCK_MODE;
-        }
+    else if (attitude_flag & GIMBAL_DEVICE_FLAGS_NEUTRAL){
+        _status.mode = (uint8_t)Gimbal_Protocol::GIMBAL_RESET_MODE;
+    }
+    else if(attitude_flag & 0x4000) {
+        _status.mode = (uint8_t)Gimbal_Protocol::GIMBAL_MAPPING_MODE;
+    }
+    else if (attitude_flag & ~GIMBAL_DEVICE_FLAGS_YAW_LOCK) {
+        _status.mode = (uint8_t)Gimbal_Protocol::GIMBAL_FOLLOW_MODE;
     }
 
     return (Gimbal_Protocol::control_mode_t)_status.mode;
@@ -875,7 +881,7 @@ Gimbal_Protocol::result_t Gimbal_Interface::set_gimbal_rotation_rate_sync(float 
         roll  >  MAX_ROTATION_RATE || roll  < -MAX_ROTATION_RATE ||
         yaw   >  MAX_ROTATION_RATE || yaw   < -MAX_ROTATION_RATE    )
     {
-        GSDK_DebugError("ERROR: You are moving the gimbal too fast!!!");
+        // GSDK_DebugError("ERROR: You are moving the gimbal too fast!!!");
         return Gimbal_Protocol::ERROR;
     }
     
@@ -1259,46 +1265,25 @@ attitude<float> Gimbal_Interface::get_gimbal_attitude(void)
 {
     uint64_t timestamps = 0;
 
-    if (_proto == MAVLINK_GIMBAL_V1) {
+    pthread_mutex_lock(&_messages.mutex);
+    timestamps = _messages.timestamps.mount_orientation;
+    pthread_mutex_unlock(&_messages.mutex);
+
+    /* Check gimbal status has changed*/
+    if (timestamps) {
         pthread_mutex_lock(&_messages.mutex);
-        timestamps = _messages.timestamps.mount_orientation;
+        /* Reset timestamps */
+        _messages.timestamps.mount_orientation = 0;
+        const mavlink_mount_orientation_t &orient = _messages.mount_orientation;
         pthread_mutex_unlock(&_messages.mutex);
 
-        /* Check gimbal status has changed*/
-        if (timestamps) {
-            pthread_mutex_lock(&_messages.mutex);
-            /* Reset timestamps */
-            _messages.timestamps.mount_orientation = 0;
-            const mavlink_mount_orientation_t &orient = _messages.mount_orientation;
-            pthread_mutex_unlock(&_messages.mutex);
-
-            if(get_gimbal_mode() == Gimbal_Protocol::control_mode_t::GIMBAL_LOCK_MODE)
-            {
-                global_pre_attitude = attitude<float>(orient.roll, orient.pitch, orient.yaw_absolute);
-                return attitude<float>(orient.roll, orient.pitch, orient.yaw_absolute);
-            }
-            global_pre_attitude = attitude<float>(orient.roll, orient.pitch, orient.yaw);
-            return attitude<float>(orient.roll, orient.pitch, orient.yaw);
+        if(get_gimbal_mode() == Gimbal_Protocol::control_mode_t::GIMBAL_LOCK_MODE)
+        {
+            global_pre_attitude = attitude<float>(orient.roll, orient.pitch, orient.yaw_absolute);
+            return attitude<float>(orient.roll, orient.pitch, orient.yaw_absolute);
         }
-
-    } else {
-        pthread_mutex_lock(&_messages.mutex);
-        timestamps = _messages.timestamps.attitude_status;
-        pthread_mutex_unlock(&_messages.mutex);
-
-        /* Check gimbal status has changed*/
-        if (_messages.timestamps.attitude_status) {
-            pthread_mutex_lock(&_messages.mutex);
-            /* Reset timestamps */
-            _messages.timestamps.attitude_status = 0;
-            const mavlink_gimbal_device_attitude_status_t &status = _messages.atttitude_status;
-            attitude<float> attitude;
-            mavlink_quaternion_to_euler(status.q, &attitude.roll, &attitude.pitch, &attitude.yaw);
-            pthread_mutex_unlock(&_messages.mutex);
-            global_pre_attitude = attitude;
-            global_pre_attitude.to_deg();
-            return attitude.to_deg();
-        }
+        global_pre_attitude = attitude<float>(orient.roll, orient.pitch, orient.yaw);
+        return attitude<float>(orient.roll, orient.pitch, orient.yaw);
     }
 
     return global_pre_attitude;
@@ -1860,9 +1845,9 @@ bool Gimbal_Interface::get_flag_exit(void)
 
 bool Gimbal_Interface::get_connection(void)
 {
-    pthread_mutex_lock(&_messages.mutex);
+    //pthread_mutex_lock(&_messages.mutex);
     // uint64_t timeout = get_time_usec() - _messages.timestamps.heartbeat;
-    pthread_mutex_unlock(&_messages.mutex);
+    //pthread_mutex_unlock(&_messages.mutex);
 
     // Check heartbeat from gimbal
     if (!has_detected && time_out > _TIME_LOST_CONNECT) {
