@@ -1330,166 +1330,33 @@ Gimbal_Interface::imu_t Gimbal_Interface::get_gimbal_raw_imu(void)
  * @param: None
  * @ret: Gimbal attitude
  */
+static Attitude_t<float> global_pre_attitude;
 Attitude_t<float> Gimbal_Interface::get_gimbal_attitude(void)
 {
-    static Attitude_t<float> ret_attitude;
     uint64_t timestamps = 0;
-    
-    if (_proto == MAVLINK_GIMBAL_V1) {
+
+    pthread_mutex_lock(&_messages.mutex);
+    timestamps = _messages.timestamps.mount_orientation;
+    pthread_mutex_unlock(&_messages.mutex);
+
+    /* Check gimbal status has changed*/
+    if (timestamps) {
         pthread_mutex_lock(&_messages.mutex);
-        timestamps = _messages.timestamps.mount_orientation;
+        /* Reset timestamps */
+        _messages.timestamps.mount_orientation = 0;
+        const mavlink_mount_orientation_t &orient = _messages.mount_orientation;
         pthread_mutex_unlock(&_messages.mutex);
 
-        /* Check gimbal status has changed*/
-        if (timestamps) {
-            pthread_mutex_lock(&_messages.mutex);
-            /* Reset timestamps */
-            _messages.timestamps.mount_orientation = 0;
-            const mavlink_mount_orientation_t &orient = _messages.mount_orientation;
-            pthread_mutex_unlock(&_messages.mutex);
-            
-            if(get_gimbal_mode() == Gimbal_Protocol::control_mode_t::GIMBAL_LOCK_MODE)
-            {
-                ret_attitude = Attitude_t<float>(orient.roll, orient.pitch, orient.yaw_absolute);
-            }
-            else {
-                ret_attitude = Attitude_t<float>(orient.roll, orient.pitch, orient.yaw);
-            } 
+        if(get_gimbal_mode() == Gimbal_Protocol::control_mode_t::GIMBAL_LOCK_MODE)
+        {
+            global_pre_attitude = Attitude_t<float>(orient.roll, orient.pitch, orient.yaw_absolute);
+            return Attitude_t<float>(orient.roll, orient.pitch, orient.yaw_absolute);
         }
-    } else {
-        pthread_mutex_lock(&_messages.mutex);
-        timestamps = _messages.timestamps.attitude_status;
-        const mavlink_gimbal_device_attitude_status_t &status = _messages.atttitude_status;
-        pthread_mutex_unlock(&_messages.mutex);
-
-        /* Check gimbal status has changed*/
-        if (timestamps) {
-            pthread_mutex_lock(&_messages.mutex);
-            /* Reset timestamps */
-            _messages.timestamps.attitude_status = 0;
-            pthread_mutex_unlock(&_messages.mutex);      
-
-            Attitude_t<float> attitude;
-            float roll_, pitch_, yaw_;
-            float q_[4];
-
-            float delta_yaw_ = status.delta_yaw;
-            bool is_inEarthFrame = false;
-
-            if(status.flags & GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME ||
-               status.flags & GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME)
-            {
-                if(status.flags & GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME)
-                {
-                    is_inEarthFrame = true;
-                }
-            }
-            else
-            {
-                if(status.flags & GIMBAL_DEVICE_FLAGS_YAW_LOCK)
-                {
-                    is_inEarthFrame = true;
-                }
-            }
-
-            if(is_inEarthFrame)
-            {
-                attitude.qua_angle_north.w = status.q[0];
-                attitude.qua_angle_north.x = status.q[1];
-                attitude.qua_angle_north.y = status.q[2];
-                attitude.qua_angle_north.z = status.q[3];
-
-                auto quaternion_north = Quaternion_angle_t{};
-                quaternion_north.w = status.q[0];
-                quaternion_north.x = status.q[1];
-                quaternion_north.y = status.q[2];
-                quaternion_north.z = status.q[3];
-
-                q_[0] = attitude.qua_angle_north.w;
-                q_[1] = attitude.qua_angle_north.x;
-                q_[2] = attitude.qua_angle_north.y;
-                q_[3] = attitude.qua_angle_north.z;
-                mavlink_quaternion_to_euler(q_, &roll_, &pitch_, &yaw_);
-
-                attitude.eu_angle_north.pitch = pitch_ * attitude.RAD2DEG;
-                attitude.eu_angle_north.roll = roll_ * attitude.RAD2DEG;
-                attitude.eu_angle_north.yaw = yaw_ * attitude.RAD2DEG;
-
-                if(!std::isnan(delta_yaw_))
-                {
-                    
-                    mavlink_euler_to_quaternion(0, 0, -delta_yaw_, q_);
-                    auto rotation = Quaternion_angle_t{q_[0], q_[1], q_[2], q_[3]};
-
-                    const auto quaternion_forward = rotation * quaternion_north;
-                    attitude.qua_angle_forward.w = quaternion_forward.w;
-                    attitude.qua_angle_forward.x = quaternion_forward.x;
-                    attitude.qua_angle_forward.y = quaternion_forward.y;
-                    attitude.qua_angle_forward.z = quaternion_forward.z;
-
-                    q_[1] = attitude.qua_angle_forward.x;
-                    q_[2] = attitude.qua_angle_forward.y;
-                    q_[3] = attitude.qua_angle_forward.z;
-
-                    mavlink_quaternion_to_euler(q_, &roll_, &pitch_, &yaw_);
-                    attitude.eu_angle_forward.pitch = pitch_ * attitude.RAD2DEG;
-                    attitude.eu_angle_forward.roll = roll_ * attitude.RAD2DEG;
-                    attitude.eu_angle_forward.yaw = yaw_ * attitude.RAD2DEG;
-                }
-            }
-            else
-            {
-                attitude.qua_angle_forward.w = status.q[0];
-                attitude.qua_angle_forward.x = status.q[1];
-                attitude.qua_angle_forward.y = status.q[2];
-                attitude.qua_angle_forward.z = status.q[3];
-
-                auto quaternion_forward = Quaternion_angle_t{};
-                quaternion_forward.w = status.q[0];
-                quaternion_forward.x = status.q[1];
-                quaternion_forward.y = status.q[2];
-                quaternion_forward.z = status.q[3];
-
-                q_[0] = attitude.qua_angle_forward.w;
-                q_[1] = attitude.qua_angle_forward.x;
-                q_[2] = attitude.qua_angle_forward.y;
-                q_[3] = attitude.qua_angle_forward.z;
-
-                mavlink_quaternion_to_euler(q_, &roll_, &pitch_, &yaw_);
-
-                attitude.eu_angle_forward.pitch = pitch_ * attitude.RAD2DEG;
-                attitude.eu_angle_forward.roll = roll_ * attitude.RAD2DEG;
-                attitude.eu_angle_forward.yaw = yaw_ * attitude.RAD2DEG;
-
-                if(!std::isnan(delta_yaw_))
-                {
-                    mavlink_euler_to_quaternion(0, 0, delta_yaw_, q_);
-                    auto rotation = Quaternion_angle_t{q_[0], q_[1], q_[2], q_[3]};
-
-                    const auto quaternion_north = rotation * quaternion_forward;
-                    attitude.qua_angle_north.w = quaternion_north.w;
-                    attitude.qua_angle_north.x = quaternion_north.x;
-                    attitude.qua_angle_north.y = quaternion_north.y;
-                    attitude.qua_angle_north.z = quaternion_north.z;
-
-                    q_[0] = attitude.qua_angle_north.w;
-                    q_[1] = attitude.qua_angle_north.x;
-                    q_[2] = attitude.qua_angle_north.y;
-                    q_[3] = attitude.qua_angle_north.z;
-
-                    mavlink_quaternion_to_euler(q_, &roll_, &pitch_, &yaw_);
-                    attitude.eu_angle_north.pitch = pitch_ * attitude.RAD2DEG;
-                    attitude.eu_angle_north.roll = roll_ * attitude.RAD2DEG;
-                    attitude.eu_angle_north.yaw = yaw_ * attitude.RAD2DEG;
-
-                }
-            }
-                                
-            ret_attitude = attitude; 
-        }
+        global_pre_attitude = Attitude_t<float>(orient.roll, orient.pitch, orient.yaw);
+        return Attitude_t<float>(orient.roll, orient.pitch, orient.yaw);
     }
 
-    return ret_attitude;
+    return global_pre_attitude;
 }
 
 /**
